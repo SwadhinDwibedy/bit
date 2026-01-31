@@ -173,12 +173,12 @@ LOG_FILE = os.path.join(BIT_DIR, "logs/history.log")
 
 def load_ghosts():
     if not os.path.exists(GHOST_FILE):
-        return {"active": None, "ghosts": {}}
+        return {"active": None, "branches": {}}
     try:
         with open(GHOST_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
-        return {"active": None, "ghosts": {}}
+        return {"active": None, "branches": {}}
 
 def save_ghosts(data):
     os.makedirs(BIT_DIR, exist_ok=True)
@@ -305,6 +305,15 @@ PUSH_MESSAGES = [
 ]
 
 def bit_push():
+    # SAFETY CHECK: Block push while on ghost branch
+    active_ghost = get_active_ghost()
+    if active_ghost:
+        warn(f"⚠ You are on a Ghost Branch ({active_ghost})")
+        err("Ghost branches cannot be pushed.")
+        print()
+        info("Use: bit ghost apply <ghost-name> to materialize it first.")
+        return
+    
     meta("Pushing to remote…")
     r = run(["git", "push"])
     time.sleep(0.4)
@@ -326,52 +335,135 @@ def bit_clone(url, target=None):
     ok("Clone complete")
 
 # =============================
-# GHOST CHECKOUT
+# GHOST BRANCH COMMANDS
 # =============================
-def bit_checkout_ghost(args):
-    if len(args) < 2:
+def bit_ghost_create(name):
+    if not name:
         err("Ghost name missing")
         return
-
-    ghost_name = args[1]
-
+    
+    # Check for existing ghost
     data = load_ghosts()
-
-    if ghost_name not in data["ghosts"]:
-        # create new ghost
-        base = run(["git", "rev-parse", "HEAD"]).stdout.strip()
-        data["ghosts"][ghost_name] = {
-            "base": base,
-            "created_at": time.time()
-        }
-        info(f"Created ghost branch 👻 {ghost_name}")
-
-    # detach HEAD
-    run(["git", "checkout", "--detach"], check=True)
-
-    data["active"] = ghost_name
+    if name in data["branches"]:
+        warn(f"Ghost branch 👻 {name} already exists")
+        return
+    
+    # STEP A: Get current commit
+    base_commit = run(["git", "rev-parse", "HEAD"]).stdout.strip()
+    if not base_commit:
+        err("Cannot get current commit. Are you in a git repository?")
+        return
+    
+    # STEP B: Save ghost metadata with formatted timestamp
+    created_at = time.strftime("%Y-%m-%d %H:%M:%S")
+    data["branches"][name] = {
+        "base_commit": base_commit,
+        "created_at": created_at
+    }
+    data["active"] = name
     save_ghosts(data)
+    
+    # STEP C: Detach HEAD (the magic)
+    run(["git", "checkout", "--detach"], check=True)
+    
+    ok(f"Ghost branch 👻 {name} created")
+    info("You're now in Ghost Mode - make commits freely!")
+    meta(f"Base commit: {base_commit[:8]}")
 
-    ok(f"Switched to ghost branch 👻 {ghost_name}")
+def bit_ghost_apply(name):
+    if not name:
+        err("Ghost name missing")
+        return
+    
+    data = load_ghosts()
+    
+    # Check if ghost exists
+    if name not in data["branches"]:
+        err(f"Ghost branch 👻 {name} not found")
+        return
+    
+    # STEP A: Create real branch from current state
+    run(["git", "checkout", "-b", name], check=True)
+    
+    # STEP B: Update ghosts.json (mark as applied)
+    data["active"] = None
+    save_ghosts(data)
+    
+    ok(f"Ghost 👻 {name} materialized as real branch")
+    info("You can now push safely")
+
+def bit_ghost_discard(name):
+    if not name:
+        err("Ghost name missing")
+        return
+    
+    data = load_ghosts()
+    
+    # Check if ghost exists
+    if name not in data["branches"]:
+        err(f"Ghost branch 👻 {name} not found")
+        return
+    
+    # Switch back to main (or another branch)
+    run(["git", "checkout", "main"], check=True)
+    
+    # Remove the ghost
+    del data["branches"][name]
+    if data["active"] == name:
+        data["active"] = None
+    save_ghosts(data)
+    
+    ok(f"Ghost 👻 {name} discarded")
+    info("Clean exit - no repo pollution")
+
+def ghost_handler(args):
+    if not args or len(args) < 1:
+        err("Usage: bit ghost <create|apply|discard> <name>")
+        return
+    
+    subcommand = args[0]
+    name = args[1] if len(args) > 1 else None
+    
+    if subcommand == "create":
+        bit_ghost_create(name)
+    elif subcommand == "apply":
+        bit_ghost_apply(name)
+    elif subcommand == "discard":
+        bit_ghost_discard(name)
+    else:
+        err(f"Unknown ghost command: {subcommand}")
+        info("Available: create, apply, discard")
 
 # =============================
 # BRANCH (with ghosts)
 # =============================
 def bit_branch():
-    # show normal branches
+    # Show git branch status
     r = run(["git", "branch"])
     print(r.stdout)
+    
+    # Check if we're in detached HEAD state (ghost mode)
+    status = run(["git", "status", "--short", "--branch"]).stdout.strip()
+    if "HEAD detached" in status or "No commits yet" in status:
+        active_ghost = get_active_ghost()
+        if active_ghost:
+            meta(f"(HEAD detached at {run(['git', 'rev-parse', '--short', 'HEAD']).stdout.strip()})")
 
-    # show ghosts
+    # Show ghost branches
     data = load_ghosts()
-    ghosts = data.get("ghosts", {})
+    ghosts = data.get("branches", {})
     active = data.get("active")
 
     if ghosts:
+        print()
         info("Ghost branches:")
         for name in ghosts:
             marker = "👻 *" if name == active else "👻"
-            print(f"  {marker} {name}")
+            base = ghosts[name].get("base_commit", "")[:8]
+            created = ghosts[name].get("created_at", "")
+            print(f"  {marker} {name} (base: {base})")
+            if created:
+                meta(f"     created: {created}")
 
 # =============================
 # PASSTHROUGH
@@ -395,7 +487,7 @@ def bit_passthrough(args):
 # =============================
 def main():
     if len(sys.argv) < 2:
-        print("Usage: bit <init|commit|push|clone|checkout|branch|git-cmd>")
+        print("Usage: bit <init|commit|push|clone|branch|ghost|git-cmd>")
         return
 
     cmd = sys.argv[1]
@@ -409,10 +501,10 @@ def main():
         bit_push()
     elif cmd == "clone":
         bit_clone(args[0], args[1] if len(args) > 1 else None)
-    elif cmd == "checkout" and "--ghost" in args:
-        bit_checkout_ghost([cmd] + args)
     elif cmd == "branch":
         bit_branch()
+    elif cmd == "ghost":
+        ghost_handler(args)
     else:
         bit_passthrough([cmd] + args)
     
