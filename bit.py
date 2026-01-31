@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+BIT_VERSION = "2.0.0"
 import subprocess
 import sys
 import os
@@ -167,6 +168,8 @@ def ai_suggest(cmd, output):
 # =============================
 BIT_DIR = ".bit"
 GHOST_FILE = os.path.join(BIT_DIR, "ghosts.json")
+CONFIG_FILE = os.path.join(BIT_DIR, "config.json")
+LOG_FILE = os.path.join(BIT_DIR, "logs/history.log")
 
 def load_ghosts():
     if not os.path.exists(GHOST_FILE):
@@ -187,12 +190,67 @@ def get_active_ghost():
     return data.get("active")
 
 # =============================
+# CONFIG
+# =============================
+def load_config():
+    if not os.path.exists(CONFIG_FILE):
+        return {}
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return {}
+
+def save_config(data):
+    os.makedirs(BIT_DIR, exist_ok=True)
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+def ensure_config():
+    os.makedirs(BIT_DIR, exist_ok=True)
+    if not os.path.exists(CONFIG_FILE):
+        # Create initial config
+        data = {
+            "version": BIT_VERSION,
+            "initialized_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "ghost_enabled": False,
+            "project_root": os.path.abspath(".")
+        }
+        save_config(data)
+    else:
+        # Update version and project root on re-init
+        data = load_config()
+        data["version"] = BIT_VERSION
+        if "project_root" not in data:
+            data["project_root"] = os.path.abspath(".")
+        if "initialized_at" not in data:
+            data["initialized_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        if "ghost_enabled" not in data:
+            data["ghost_enabled"] = False
+        save_config(data)
+
+# =============================
+# HISTORY LOGGING
+# =============================
+def log_history(command, args=[]):
+    os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    args_str = " ".join(args) if args else ""
+    entry = f"[{timestamp}] bit {command} {args_str}\n"
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(entry)
+
+# =============================
 # INIT
 # =============================
 def bit_init():
     ensure_gitignore()
+    ensure_config()
     run(["git", "init"], check=True)
     ok("Repository initialized")
+    # Display config info
+    config = load_config()
+    meta(f"Bit v{config.get('version', 'unknown')} initialized at {config.get('initialized_at', 'unknown')}")
 
 # =============================
 # COMMIT
@@ -357,6 +415,12 @@ def main():
         bit_branch()
     else:
         bit_passthrough([cmd] + args)
+    
+    # Log this command to history
+    try:
+        log_history(cmd, args)
+    except Exception:
+        pass  # Don't break functionality if logging fails
 
 if __name__ == "__main__":
     main()
