@@ -6,6 +6,7 @@ import io
 import threading
 import time
 import random
+import json
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -111,7 +112,7 @@ def detect_project():
     return "generic"
 
 # =============================
-# .GITIGNORE AUTO HEAL
+# GITIGNORE AUTO HEAL
 # =============================
 def ensure_gitignore():
     rules = {
@@ -162,6 +163,30 @@ def ai_suggest(cmd, output):
         return None
 
 # =============================
+# GHOST BRANCH HELPERS
+# =============================
+BIT_DIR = ".bit"
+GHOST_FILE = os.path.join(BIT_DIR, "ghosts.json")
+
+def load_ghosts():
+    if not os.path.exists(GHOST_FILE):
+        return {"active": None, "ghosts": {}}
+    try:
+        with open(GHOST_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"active": None, "ghosts": {}}
+
+def save_ghosts(data):
+    os.makedirs(BIT_DIR, exist_ok=True)
+    with open(GHOST_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+def get_active_ghost():
+    data = load_ghosts()
+    return data.get("active")
+
+# =============================
 # INIT
 # =============================
 def bit_init():
@@ -210,7 +235,7 @@ def bit_commit():
     ok("Commit created")
 
 # =============================
-# PUSH (celebration moment)
+# PUSH
 # =============================
 PUSH_MESSAGES = [
     "All set. Code is safely in the cloud ☁️",
@@ -243,6 +268,54 @@ def bit_clone(url, target=None):
     ok("Clone complete")
 
 # =============================
+# GHOST CHECKOUT
+# =============================
+def bit_checkout_ghost(args):
+    if len(args) < 2:
+        err("Ghost name missing")
+        return
+
+    ghost_name = args[1]
+
+    data = load_ghosts()
+
+    if ghost_name not in data["ghosts"]:
+        # create new ghost
+        base = run(["git", "rev-parse", "HEAD"]).stdout.strip()
+        data["ghosts"][ghost_name] = {
+            "base": base,
+            "created_at": time.time()
+        }
+        info(f"Created ghost branch 👻 {ghost_name}")
+
+    # detach HEAD
+    run(["git", "checkout", "--detach"], check=True)
+
+    data["active"] = ghost_name
+    save_ghosts(data)
+
+    ok(f"Switched to ghost branch 👻 {ghost_name}")
+
+# =============================
+# BRANCH (with ghosts)
+# =============================
+def bit_branch():
+    # show normal branches
+    r = run(["git", "branch"])
+    print(r.stdout)
+
+    # show ghosts
+    data = load_ghosts()
+    ghosts = data.get("ghosts", {})
+    active = data.get("active")
+
+    if ghosts:
+        info("Ghost branches:")
+        for name in ghosts:
+            marker = "👻 *" if name == active else "👻"
+            print(f"  {marker} {name}")
+
+# =============================
 # PASSTHROUGH
 # =============================
 def bit_passthrough(args):
@@ -264,7 +337,7 @@ def bit_passthrough(args):
 # =============================
 def main():
     if len(sys.argv) < 2:
-        print("Usage: bit <init|commit|push|clone|git-cmd>")
+        print("Usage: bit <init|commit|push|clone|checkout|branch|git-cmd>")
         return
 
     cmd = sys.argv[1]
@@ -278,6 +351,10 @@ def main():
         bit_push()
     elif cmd == "clone":
         bit_clone(args[0], args[1] if len(args) > 1 else None)
+    elif cmd == "checkout" and "--ghost" in args:
+        bit_checkout_ghost([cmd] + args)
+    elif cmd == "branch":
+        bit_branch()
     else:
         bit_passthrough([cmd] + args)
 
