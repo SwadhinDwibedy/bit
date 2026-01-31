@@ -120,22 +120,38 @@ Generate ONE short Conventional Commit message for this git diff:
 # -----------------------------
 def bit_commit():
     # Auto-stage all if nothing staged
-    staged = subprocess.run(["git", "diff", "--cached", "--name-only"], capture_output=True, text=True).stdout
-    if not staged.strip():
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace"
+    ).stdout
+
+    if not staged or not staged.strip():
         print("ℹ 🔹 Bit: No staged changes detected. Running 'bit add .' automatically.")
         subprocess.run(["git", "add", "."], check=True)
 
-    diff = subprocess.run(["git", "diff", "--cached"], capture_output=True, text=True).stdout
+    diff = subprocess.run(
+        ["git", "diff", "--cached"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace"
+    ).stdout
 
-    if not diff.strip():
+    if not diff or not diff.strip():
         print("⚠ 🔹 Bit: Nothing to commit even after adding.")
         return
 
     print("🤖 🔹 Bit: Generating commit message with Gemini...")
-    commit_message = commit_with_gemini(diff)
-    print(f"\n✅ 🔹 Bit (Gemini) Commit message:\n{commit_message}\n")
-    subprocess.run(["git", "commit", "-m", commit_message], check=True)
-    print("🎉 🔹 Bit: Commit successful")
+    try:
+        commit_message = commit_with_gemini(diff)
+        print(f"\n✅ 🔹 Bit (Gemini) Commit message:\n{commit_message}\n")
+        subprocess.run(["git", "commit", "-m", commit_message], check=True)
+        print("🎉 🔹 Bit: Commit successful")
+    except Exception as e:
+        print(f"❌ 🔹 Bit: AI commit failed: {e}")
 
 # -----------------------------
 # Bit passthrough for all other commands
