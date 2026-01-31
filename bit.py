@@ -5,6 +5,7 @@ import os
 import io
 import threading
 import time
+import random
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -17,41 +18,53 @@ if sys.platform == "win32":
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 # =============================
-# COLORS
+# COLORS (restrained)
 # =============================
 RESET = "\033[0m"
 GREEN = "\033[92m"
 RED = "\033[91m"
 YELLOW = "\033[93m"
-CYAN = "\033[96m"
-MAGENTA = "\033[95m"
+CYAN = "\033[96m"      # primary accent
+MAGENTA = "\033[95m"   # AI only
 DIM = "\033[2m"
 
 def ok(msg): print(f"{GREEN}✔ {msg}{RESET}")
 def warn(msg): print(f"{YELLOW}⚠ {msg}{RESET}")
 def err(msg): print(f"{RED}✖ {msg}{RESET}")
-def info(msg): print(f"{CYAN}ℹ {msg}{RESET}")
-def ai(msg): print(f"{MAGENTA}💡 {msg}{RESET}")
+def info(msg): print(f"{CYAN}{msg}{RESET}")
+def meta(msg): print(f"{DIM}{msg}{RESET}")
+def ai_msg(msg): print(f"{MAGENTA}{msg}{RESET}")
 
 # =============================
-# SPINNER
+# SPINNER (alive, not robotic)
 # =============================
 class Spinner:
-    def __init__(self, text="Working"):
-        self.text = text
+    def __init__(self, steps):
+        self.steps = steps
         self.running = False
         self.thread = None
 
     def start(self):
         self.running = True
-        self.thread = threading.Thread(target=self.spin)
+        self.thread = threading.Thread(target=self.spin, daemon=True)
         self.thread.start()
 
     def spin(self):
         frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇"
         i = 0
+        step_index = 0
+        last_switch = time.time()
+
         while self.running:
-            print(f"\r{MAGENTA}{self.text} {frames[i % len(frames)]}{RESET}", end="", flush=True)
+            if time.time() - last_switch > 1.2 and step_index < len(self.steps) - 1:
+                step_index += 1
+                last_switch = time.time()
+
+            print(
+                f"\r{MAGENTA}{self.steps[step_index]} {frames[i % len(frames)]}{RESET}",
+                end="",
+                flush=True
+            )
             time.sleep(0.1)
             i += 1
 
@@ -59,7 +72,7 @@ class Spinner:
         self.running = False
         if self.thread:
             self.thread.join()
-        print("\r" + " " * 50 + "\r", end="", flush=True)
+        print("\r" + " " * 60 + "\r", end="", flush=True)
 
 # =============================
 # ENV + GEMINI
@@ -118,30 +131,35 @@ def ensure_gitignore():
     if content.strip() not in existing:
         with open(".gitignore", "a", encoding="utf-8") as f:
             f.write("\n" + content)
-        ok("Updated .gitignore")
+        ok(".gitignore updated")
 
 # =============================
-# AI HELPER
+# AI HELPERS
 # =============================
-def ai_suggest(title, context=""):
+def ai_commit(diff):
     if not client:
-        return "AI disabled (no API key)"
+        return None
 
-    spinner = Spinner("Bit AI thinking")
-    spinner.start()
     try:
         r = client.models.generate_content(
             model="gemini-3-flash-preview",
-            contents=f"{title}\n{context}",
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_level="low")
-            ),
+            contents=f"Generate ONE conventional commit:\n{diff}",
         )
-        spinner.stop()
+        return r.text.strip().split("\n")[0]
+    except Exception:
+        return None
+
+def ai_suggest(cmd, output):
+    if not client:
+        return None
+    try:
+        r = client.models.generate_content(
+            model="gemini-3-flash-preview",
+            contents=f"Command: {cmd}\nOutput:\n{output}\nGive short advice.",
+        )
         return r.text.strip()
     except Exception:
-        spinner.stop()
-        return "AI suggestion unavailable"
+        return None
 
 # =============================
 # INIT
@@ -160,9 +178,8 @@ def bit_commit():
     staged = run(["git", "diff", "--cached", "--name-only"]).stdout.strip()
 
     if not staged:
-        info("Auto-staging modified files")
-        files = run(["git", "diff", "--name-only"]).stdout.splitlines()
-        for f in files:
+        meta("Auto-staging modified files")
+        for f in run(["git", "diff", "--name-only"]).stdout.splitlines():
             if not f.startswith("bit-/"):
                 run(["git", "add", f])
 
@@ -171,35 +188,46 @@ def bit_commit():
         warn("Nothing to commit")
         return
 
-    spinner = Spinner("Generating commit message")
+    spinner = Spinner([
+        "Analyzing changes",
+        "Understanding intent",
+        "Crafting commit message",
+        "Almost done"
+    ])
     spinner.start()
     msg = ai_commit(diff)
     spinner.stop()
 
-    info(f"Commit message → {msg}")
+    if msg:
+        ai_msg("AI assisted ✓")
+    else:
+        ai_msg("AI skipped ✓")
+        msg = "chore: update code"
+
+    info(f"Commit → {msg}")
+    time.sleep(0.3)
     run(["git", "commit", "-m", msg], check=True)
     ok("Commit created")
 
-def ai_commit(diff):
-    if not client:
-        return "chore: update code"
-    try:
-        r = client.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=f"Generate ONE conventional commit:\n{diff}",
-        )
-        return r.text.strip().split("\n")[0]
-    except Exception:
-        return "chore: update code"
+# =============================
+# PUSH (celebration moment)
+# =============================
+PUSH_MESSAGES = [
+    "All set. Code is safely in the cloud ☁️",
+    "Push complete. Ship it 🚢",
+    "Sent it. No turning back now.",
+    "Pushed clean. No drama.",
+    "Main branch updated. Respectfully.",
+    "Synced."
+]
 
-# =============================
-# PUSH
-# =============================
 def bit_push():
-    info("Pushing to remote")
+    meta("Pushing to remote…")
     r = run(["git", "push"])
+    time.sleep(0.4)
+
     if r.returncode == 0:
-        ok("Push successful")
+        ok(random.choice(PUSH_MESSAGES))
     else:
         warn(r.stderr.strip())
 
@@ -209,7 +237,7 @@ def bit_push():
 def bit_clone(url, target=None):
     folder = target or url.split("/")[-1].replace(".git", "")
     if os.path.exists(folder) and os.listdir(folder):
-        warn(f"'{folder}' already exists, skipping clone")
+        warn(f"'{folder}' already exists — skipping clone")
         return
     run(["git", "clone", url, folder], check=True)
     ok("Clone complete")
@@ -218,13 +246,18 @@ def bit_clone(url, target=None):
 # PASSTHROUGH
 # =============================
 def bit_passthrough(args):
-    print(f"{CYAN}➜ git {' '.join(args)}{RESET}")
+    meta(f"➜ git {' '.join(args)}")
     r = run(["git"] + args)
     if r.stdout:
         print(r.stdout)
     if r.stderr:
         print(r.stderr)
-    ai(ai_suggest("git " + " ".join(args), r.stdout))
+
+    suggestion = ai_suggest("git " + " ".join(args), r.stdout)
+    if suggestion:
+        ai_msg(suggestion)
+    else:
+        ai_msg("AI skipped ✓")
 
 # =============================
 # CLI
