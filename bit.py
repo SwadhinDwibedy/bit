@@ -3,6 +3,8 @@ import subprocess
 import sys
 import os
 import io
+import threading
+import time
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -15,18 +17,59 @@ if sys.platform == "win32":
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 # =============================
+# COLORS
+# =============================
+RESET = "\033[0m"
+GREEN = "\033[92m"
+RED = "\033[91m"
+YELLOW = "\033[93m"
+CYAN = "\033[96m"
+MAGENTA = "\033[95m"
+DIM = "\033[2m"
+
+def ok(msg): print(f"{GREEN}✔ {msg}{RESET}")
+def warn(msg): print(f"{YELLOW}⚠ {msg}{RESET}")
+def err(msg): print(f"{RED}✖ {msg}{RESET}")
+def info(msg): print(f"{CYAN}ℹ {msg}{RESET}")
+def ai(msg): print(f"{MAGENTA}💡 {msg}{RESET}")
+
+# =============================
+# SPINNER
+# =============================
+class Spinner:
+    def __init__(self, text="Working"):
+        self.text = text
+        self.running = False
+        self.thread = None
+
+    def start(self):
+        self.running = True
+        self.thread = threading.Thread(target=self.spin)
+        self.thread.start()
+
+    def spin(self):
+        frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇"
+        i = 0
+        while self.running:
+            print(f"\r{MAGENTA}{self.text} {frames[i % len(frames)]}{RESET}", end="", flush=True)
+            time.sleep(0.1)
+            i += 1
+
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join()
+        print("\r" + " " * 50 + "\r", end="", flush=True)
+
+# =============================
 # ENV + GEMINI
 # =============================
 load_dotenv()
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_KEY:
-    print("❌ Bit: GEMINI_API_KEY missing")
-    sys.exit(1)
-
-client = genai.Client(api_key=GEMINI_KEY)
+client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
 # =============================
-# SAFE SUBPROCESS WRAPPER
+# SAFE SUBPROCESS
 # =============================
 def run(cmd, check=False):
     try:
@@ -75,12 +118,17 @@ def ensure_gitignore():
     if content.strip() not in existing:
         with open(".gitignore", "a", encoding="utf-8") as f:
             f.write("\n" + content)
-        print("✅ Bit: .gitignore updated")
+        ok("Updated .gitignore")
 
 # =============================
 # AI HELPER
 # =============================
 def ai_suggest(title, context=""):
+    if not client:
+        return "AI disabled (no API key)"
+
+    spinner = Spinner("Bit AI thinking")
+    spinner.start()
     try:
         r = client.models.generate_content(
             model="gemini-3-flash-preview",
@@ -89,9 +137,11 @@ def ai_suggest(title, context=""):
                 thinking_config=types.ThinkingConfig(thinking_level="low")
             ),
         )
+        spinner.stop()
         return r.text.strip()
     except Exception:
-        return "⚠ AI suggestion unavailable."
+        spinner.stop()
+        return "AI suggestion unavailable"
 
 # =============================
 # INIT
@@ -99,7 +149,7 @@ def ai_suggest(title, context=""):
 def bit_init():
     ensure_gitignore()
     run(["git", "init"], check=True)
-    print("🎉 Bit: Repository initialized")
+    ok("Repository initialized")
 
 # =============================
 # COMMIT
@@ -110,27 +160,29 @@ def bit_commit():
     staged = run(["git", "diff", "--cached", "--name-only"]).stdout.strip()
 
     if not staged:
-        has_commit = run(["git", "rev-parse", "--verify", "HEAD"]).returncode == 0
-        if has_commit:
-            print("ℹ Bit: Auto staging changes")
-            files = run(["git", "diff", "--name-only"]).stdout.splitlines()
-            for f in files:
-                if f.startswith("bit-/"):
-                    continue
+        info("Auto-staging modified files")
+        files = run(["git", "diff", "--name-only"]).stdout.splitlines()
+        for f in files:
+            if not f.startswith("bit-/"):
                 run(["git", "add", f])
 
     diff = run(["git", "diff", "--cached"]).stdout.strip()
     if not diff:
-        print("⚠ Bit: Nothing to commit")
+        warn("Nothing to commit")
         return
 
-    print("🤖 Bit: Generating commit message...")
+    spinner = Spinner("Generating commit message")
+    spinner.start()
     msg = ai_commit(diff)
-    print("✅", msg)
+    spinner.stop()
+
+    info(f"Commit message → {msg}")
     run(["git", "commit", "-m", msg], check=True)
-    print("🎉 Bit: Commit successful")
+    ok("Commit created")
 
 def ai_commit(diff):
+    if not client:
+        return "chore: update code"
     try:
         r = client.models.generate_content(
             model="gemini-3-flash-preview",
@@ -141,15 +193,15 @@ def ai_commit(diff):
         return "chore: update code"
 
 # =============================
-# PUSH (NEW)
+# PUSH
 # =============================
 def bit_push():
-    print("🚀 Bit: Pushing to remote...")
+    info("Pushing to remote")
     r = run(["git", "push"])
     if r.returncode == 0:
-        print("✅ Bit: Push successful")
+        ok("Push successful")
     else:
-        print(r.stderr or "❌ Bit: Push failed")
+        warn(r.stderr.strip())
 
 # =============================
 # CLONE
@@ -157,22 +209,22 @@ def bit_push():
 def bit_clone(url, target=None):
     folder = target or url.split("/")[-1].replace(".git", "")
     if os.path.exists(folder) and os.listdir(folder):
-        print(f"⚠ Bit: '{folder}' exists, skipping clone")
+        warn(f"'{folder}' already exists, skipping clone")
         return
     run(["git", "clone", url, folder], check=True)
-    print("✅ Bit: Clone complete")
+    ok("Clone complete")
 
 # =============================
 # PASSTHROUGH
 # =============================
 def bit_passthrough(args):
-    print(f"🔹 Bit → git {' '.join(args)}")
+    print(f"{CYAN}➜ git {' '.join(args)}{RESET}")
     r = run(["git"] + args)
     if r.stdout:
         print(r.stdout)
     if r.stderr:
         print(r.stderr)
-    print("💡", ai_suggest("git " + " ".join(args), r.stdout))
+    ai(ai_suggest("git " + " ".join(args), r.stdout))
 
 # =============================
 # CLI
