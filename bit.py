@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import subprocess
 import sys
 import os
@@ -13,14 +14,16 @@ load_dotenv()
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
 if not GEMINI_KEY:
-    print("❌ GEMINI_API_KEY not found in .env")
+    print("❌ 🔹 Bit: GEMINI_API_KEY not found in .env")
     sys.exit(1)
+
+client = genai.Client(api_key=GEMINI_KEY)
 
 # -----------------------------
 # Detect Project Type
 # -----------------------------
 def detect_project_type():
-    files = os.listdir('.')
+    files = os.listdir('.') if os.path.exists('.') else []
     if 'package.json' in files:
         return 'node'
     elif 'requirements.txt' in files or any(f.endswith('.py') for f in files):
@@ -39,30 +42,75 @@ def create_gitignore(project_type):
         "rust": "target/\n.env\n",
         "generic": ".env\n"
     }
-
     with open(".gitignore", "w", encoding="utf-8") as f:
         f.write(content_map[project_type])
-
-    print(f"✅ Created .gitignore for {project_type}")
+    print(f"✅ 🔹 Bit: Created .gitignore for {project_type}")
 
 # -----------------------------
-# Initialize Git
+# AI Suggestion Helper
+# -----------------------------
+def ai_suggest(command_str, context=""):
+    try:
+        response = client.models.generate_content(
+            model="gemini-3-flash-preview",
+            contents=f"""
+You are an expert Git assistant.
+User just ran this command: {command_str}
+Context: {context}
+
+Provide helpful suggestions, warnings, or improvements in short sentences.
+""",
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_level="low")
+            )
+        )
+        text = response.text.strip()
+        return text
+    except Exception as e:
+        return f"⚠ 🔹 Bit AI suggestion failed: {e}"
+
+# -----------------------------
+# Bit init
 # -----------------------------
 def bit_init():
+    print("🔹 Bit: Initializing repository with AI assistance...")
     project_type = detect_project_type()
-    print(f"🔍 Detected project type: {project_type}")
-
     create_gitignore(project_type)
     subprocess.run(["git", "init"], check=True)
-    print("✅ Git repository initialized")
+    ai_text = ai_suggest("git init", context="Suggest gitignore and folder protection for this project.")
+    print(f"💡 🔹 Bit AI Suggestion: {ai_text}")
+    print("✅ 🔹 Bit: Repository initialized")
 
 # -----------------------------
-# Gemini commit generation with retry
+# Bit commit
+# -----------------------------
+def bit_commit():
+    # Auto-stage all if nothing staged
+    staged = subprocess.run(["git", "diff", "--cached", "--name-only"], capture_output=True, text=True).stdout
+    if not staged.strip():
+        print("ℹ 🔹 Bit: No staged changes detected. Running 'bit add .' automatically.")
+        subprocess.run(["git", "add", "."], check=True)
+
+    diff = subprocess.run(["git", "diff", "--cached"], capture_output=True, text=True).stdout
+
+    if not diff.strip():
+        print("⚠ 🔹 Bit: Nothing to commit even after adding.")
+        return
+
+    print("🤖 🔹 Bit: Generating commit message with Gemini...")
+    try:
+        commit_message = commit_with_gemini(diff)
+        print(f"\n✅ 🔹 Bit (Gemini) Commit message:\n{commit_message}\n")
+        subprocess.run(["git", "commit", "-m", commit_message], check=True)
+        print("🎉 🔹 Bit: Commit successful")
+    except Exception as e:
+        print(f"❌ 🔹 Bit: AI commit failed: {e}")
+
+# -----------------------------
+# Gemini commit generator
 # -----------------------------
 def commit_with_gemini(diff, retries=3, wait_sec=2):
-    client = genai.Client(api_key=GEMINI_KEY)
     attempt = 0
-
     while attempt < retries:
         try:
             response = client.models.generate_content(
@@ -84,55 +132,46 @@ Generate ONE short Conventional Commit message for this git diff:
                 raise ValueError("Empty response from Gemini")
         except Exception as e:
             attempt += 1
-            print(f"⚠ Gemini attempt {attempt} failed: {e}")
+            print(f"⚠ 🔹 Bit: Gemini attempt {attempt} failed: {e}")
             if attempt < retries:
-                print(f"💡 Retrying in {wait_sec} seconds...")
+                print(f"💡 🔹 Bit: Retrying in {wait_sec} seconds...")
                 sleep(wait_sec)
             else:
                 raise
 
 # -----------------------------
-# Bit commit
+# Bit passthrough for all other commands
 # -----------------------------
-def bit_commit():
-    diff = subprocess.run(
-        ["git", "diff", "--cached"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="ignore"
-    ).stdout
-
-    if not diff.strip():
-        print("⚠ No staged changes. Run: git add .")
-        return
-
-    print("🤖 Generating commit message with Gemini...")
-
+def bit_passthrough(args):
+    cmd = ["git"] + args
+    print(f"🔹 Bit: Passing through to Git: git {' '.join(args)}")
     try:
-        commit_message = commit_with_gemini(diff)
-        print(f"\n✅ (Gemini) Commit message:\n{commit_message}\n")
-        subprocess.run(["git", "commit", "-m", commit_message], check=True)
-        print("🎉 Commit successful")
-    except Exception as e:
-        print(f"❌ AI commit failed: {e}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        print(result.stdout)
+        if result.stderr:
+            print(result.stderr)
+        # AI suggestion for any command
+        suggestions = ai_suggest(f"git {' '.join(args)}", context=result.stdout)
+        print(f"\n💡 🔹 Bit AI Suggestion:\n{suggestions}\n")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ 🔹 Bit: Git command failed with exit code {e.returncode}")
 
 # -----------------------------
 # CLI Router
 # -----------------------------
 def main():
     args = sys.argv[1:]
-
     if not args:
-        print("⚠ Usage: python bit.py <init | commit | git-command>")
+        print("⚠ 🔹 Bit: Usage: bit <init | commit | other-git-commands>")
         return
 
-    if args[0] == "init":
+    command = args[0].lower()
+    if command == "init":
         bit_init()
-    elif args[0] == "commit":
+    elif command == "commit":
         bit_commit()
     else:
-        subprocess.run(["git"] + args)
+        bit_passthrough(args)
 
 if __name__ == "__main__":
     main()
