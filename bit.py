@@ -130,12 +130,17 @@ def bit_commit():
         ["git", "diff", "--cached", "--name-only"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     ).stdout.strip()
 
     if not staged:
         # Only auto-add if repo already has commits
         if subprocess.run(["git", "rev-parse", "--verify", "HEAD"],
-                          capture_output=True).returncode == 0:
+                          capture_output=True,
+                          encoding="utf-8",
+                          errors="replace",
+                          text=True).returncode == 0:
             try:
                 subprocess.run(["git", "add", "."], check=True)
             except subprocess.CalledProcessError:
@@ -144,6 +149,8 @@ def bit_commit():
                     ["git", "diff", "--name-only"],
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                 ).stdout.strip()
                 for f in modified.splitlines():
                     try:
@@ -155,6 +162,8 @@ def bit_commit():
         ["git", "diff", "--cached"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     ).stdout.strip()
 
     if not diff:
@@ -183,7 +192,7 @@ def bit_clone(url, target=None):
 # -----------------------------
 def bit_passthrough(args):
     print(f"🔹 Bit → git {' '.join(args)}")
-    r = subprocess.run(["git"] + args, capture_output=True, text=True)
+    r = subprocess.run(["git"] + args, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.stdout:
         print(r.stdout)
     if r.stderr:
