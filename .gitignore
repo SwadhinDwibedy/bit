@@ -5,3 +5,8 @@ venv/
 
 # Bit temp folders
 bit-/
+__pycache__/
+*.pyc
+venv/
+.env
+bit-/
