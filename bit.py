@@ -2,10 +2,16 @@
 import subprocess
 import sys
 import os
+import io
 from time import sleep
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+
+# Force UTF-8 output for Windows console compatibility
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # -----------------------------
 # Load environment variables
@@ -129,8 +135,29 @@ def bit_commit():
     ).stdout
 
     if not staged or not staged.strip():
-        print("ℹ 🔹 Bit: No staged changes detected. Running 'bit add .' automatically.")
-        subprocess.run(["git", "add", "."], check=True)
+        print("ℹ 🔹 Bit: No staged changes detected. Running 'git add .' automatically.")
+        # Try to add all files; if that fails, get modified files and add them individually
+        try:
+            subprocess.run(["git", "add", "."], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"⚠ 🔹 Bit: 'git add .' failed: {e}")
+            print("ℹ 🔹 Bit: Trying to add modified files individually...")
+            # Get list of modified files and add them
+            modified = subprocess.run(
+                ["git", "diff", "--name-only"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace"
+            ).stdout
+            if modified and modified.strip():
+                # Add each modified file individually to skip problematic directories
+                for filename in modified.strip().split('\n'):
+                    if filename:
+                        try:
+                            subprocess.run(["git", "add", filename], check=True, capture_output=True)
+                        except subprocess.CalledProcessError:
+                            print(f"⚠ 🔹 Bit: Skipping problematic file/directory: {filename}")
 
     diff = subprocess.run(
         ["git", "diff", "--cached"],
