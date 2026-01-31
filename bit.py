@@ -64,10 +64,10 @@ Provide helpful suggestions, warnings, or improvements in short sentences.
                 thinking_config=types.ThinkingConfig(thinking_level="low")
             )
         )
-        text = response.text.strip()
-        return text
-    except Exception as e:
-        return f"⚠ 🔹 Bit AI suggestion failed: {e}"
+        return response.text.strip()
+    except Exception:
+        # Fallback if AI is overloaded or fails
+        return "⚠ 🔹 Bit AI suggestion unavailable. Please try again later."
 
 # -----------------------------
 # Bit init
@@ -80,31 +80,6 @@ def bit_init():
     ai_text = ai_suggest("git init", context="Suggest gitignore and folder protection for this project.")
     print(f"💡 🔹 Bit AI Suggestion: {ai_text}")
     print("✅ 🔹 Bit: Repository initialized")
-
-# -----------------------------
-# Bit commit
-# -----------------------------
-def bit_commit():
-    # Auto-stage all if nothing staged
-    staged = subprocess.run(["git", "diff", "--cached", "--name-only"], capture_output=True, text=True).stdout
-    if not staged.strip():
-        print("ℹ 🔹 Bit: No staged changes detected. Running 'bit add .' automatically.")
-        subprocess.run(["git", "add", "."], check=True)
-
-    diff = subprocess.run(["git", "diff", "--cached"], capture_output=True, text=True).stdout
-
-    if not diff.strip():
-        print("⚠ 🔹 Bit: Nothing to commit even after adding.")
-        return
-
-    print("🤖 🔹 Bit: Generating commit message with Gemini...")
-    try:
-        commit_message = commit_with_gemini(diff)
-        print(f"\n✅ 🔹 Bit (Gemini) Commit message:\n{commit_message}\n")
-        subprocess.run(["git", "commit", "-m", commit_message], check=True)
-        print("🎉 🔹 Bit: Commit successful")
-    except Exception as e:
-        print(f"❌ 🔹 Bit: AI commit failed: {e}")
 
 # -----------------------------
 # Gemini commit generator
@@ -137,7 +112,30 @@ Generate ONE short Conventional Commit message for this git diff:
                 print(f"💡 🔹 Bit: Retrying in {wait_sec} seconds...")
                 sleep(wait_sec)
             else:
-                raise
+                # Fallback commit message if AI fails completely
+                return "chore: update code (AI unavailable)"
+
+# -----------------------------
+# Bit commit
+# -----------------------------
+def bit_commit():
+    # Auto-stage all if nothing staged
+    staged = subprocess.run(["git", "diff", "--cached", "--name-only"], capture_output=True, text=True).stdout
+    if not staged.strip():
+        print("ℹ 🔹 Bit: No staged changes detected. Running 'bit add .' automatically.")
+        subprocess.run(["git", "add", "."], check=True)
+
+    diff = subprocess.run(["git", "diff", "--cached"], capture_output=True, text=True).stdout
+
+    if not diff.strip():
+        print("⚠ 🔹 Bit: Nothing to commit even after adding.")
+        return
+
+    print("🤖 🔹 Bit: Generating commit message with Gemini...")
+    commit_message = commit_with_gemini(diff)
+    print(f"\n✅ 🔹 Bit (Gemini) Commit message:\n{commit_message}\n")
+    subprocess.run(["git", "commit", "-m", commit_message], check=True)
+    print("🎉 🔹 Bit: Commit successful")
 
 # -----------------------------
 # Bit passthrough for all other commands
@@ -147,7 +145,8 @@ def bit_passthrough(args):
     print(f"🔹 Bit: Passing through to Git: git {' '.join(args)}")
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
-        print(result.stdout)
+        if result.stdout:
+            print(result.stdout)
         if result.stderr:
             print(result.stderr)
         # AI suggestion for any command
