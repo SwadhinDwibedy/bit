@@ -9,11 +9,11 @@ from google import genai
 from google.genai import types
 
 # -----------------------------
-# Force UTF-8 output for Windows console
+# Force UTF-8 output for Windows
 # -----------------------------
-if sys.platform == 'win32':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 # -----------------------------
 # Load environment variables
@@ -30,205 +30,182 @@ client = genai.Client(api_key=GEMINI_KEY)
 # Detect Project Type
 # -----------------------------
 def detect_project_type():
-    files = os.listdir('.') if os.path.exists('.') else []
-    if 'package.json' in files:
-        return 'node'
-    elif 'requirements.txt' in files or any(f.endswith('.py') for f in files):
-        return 'python'
-    elif any(f.endswith('.rs') for f in files):
-        return 'rust'
-    return 'generic'
+    files = os.listdir(".")
+    if "package.json" in files:
+        return "node"
+    if "requirements.txt" in files or any(f.endswith(".py") for f in files):
+        return "python"
+    if any(f.endswith(".rs") for f in files):
+        return "rust"
+    return "generic"
 
 # -----------------------------
 # Create / Update .gitignore
 # -----------------------------
 def create_gitignore(project_type):
-    gitignore_file = ".gitignore"
-    content_map = {
-        "python": "__pycache__/\n*.pyc\n.env\nvenv/\n",
+    gitignore = ".gitignore"
+    defaults = {
+        "python": "__pycache__/\n*.pyc\nvenv/\n.env\n",
         "node": "node_modules/\n.env\n",
         "rust": "target/\n.env\n",
-        "generic": ".env\n"
+        "generic": ".env\n",
     }
-    existing = ""
-    if os.path.exists(gitignore_file):
-        with open(gitignore_file, "r", encoding="utf-8") as f:
-            existing = f.read()
 
-    content_to_add = content_map.get(project_type, ".env\n")
+    existing = ""
+    if os.path.exists(gitignore):
+        existing = open(gitignore, encoding="utf-8").read()
+
+    content = ""
+    if defaults[project_type] not in existing:
+        content += defaults[project_type]
     if "bit-/" not in existing:
-        content_to_add += "bit-/\n"  # Add known temp folder
-    with open(gitignore_file, "a", encoding="utf-8") as f:
-        f.write(content_to_add)
-    print(f"✅ 🔹 Bit: Updated .gitignore for {project_type}")
+        content += "bit-/\n"
+
+    if content:
+        with open(gitignore, "a", encoding="utf-8") as f:
+            f.write(content)
+
+    print(f"✅ 🔹 Bit: .gitignore updated ({project_type})")
 
 # -----------------------------
 # AI Suggestion Helper
 # -----------------------------
-def ai_suggest(command_str, context=""):
+def ai_suggest(command, context=""):
     try:
-        response = client.models.generate_content(
+        r = client.models.generate_content(
             model="gemini-3-flash-preview",
             contents=f"""
 You are an expert Git assistant.
-User just ran this command: {command_str}
+Command: {command}
 Context: {context}
-
-Provide helpful suggestions, warnings, or improvements in short sentences.
+Give short helpful advice.
 """,
             config=types.GenerateContentConfig(
                 thinking_config=types.ThinkingConfig(thinking_level="low")
-            )
+            ),
         )
-        return response.text.strip()
+        return r.text.strip()
     except Exception:
-        return "⚠ 🔹 Bit AI suggestion unavailable. Please try again later."
+        return "⚠ 🔹 Bit AI suggestion unavailable."
 
 # -----------------------------
-# Initialize repo
+# Init
 # -----------------------------
 def bit_init():
-    print("🔹 Bit: Initializing repository with AI assistance...")
-    project_type = detect_project_type()
-    create_gitignore(project_type)
+    print("🔹 Bit: Initializing repository...")
+    create_gitignore(detect_project_type())
     subprocess.run(["git", "init"], check=True)
-    ai_text = ai_suggest("git init", context="Suggest gitignore and folder protection for this project.")
-    print(f"💡 🔹 Bit AI Suggestion: {ai_text}")
-    print("✅ 🔹 Bit: Repository initialized")
+    print("💡", ai_suggest("git init"))
+    print("✅ 🔹 Bit: Repo initialized")
 
 # -----------------------------
-# Generate commit message with Gemini
+# Gemini Commit Message
 # -----------------------------
-def commit_with_gemini(diff, retries=3, wait_sec=2):
-    attempt = 0
-    while attempt < retries:
-        try:
-            response = client.models.generate_content(
-                model="gemini-3-flash-preview",
-                contents=f"""
-You are a Git commit assistant.
-Generate ONE short Conventional Commit message for this git diff:
-
-{diff}
-""",
-                config=types.GenerateContentConfig(
-                    thinking_config=types.ThinkingConfig(thinking_level="low")
-                )
-            )
-            text = response.text.strip().split("\n")[0]
-            if text:
-                return text
-            else:
-                raise ValueError("Empty response from Gemini")
-        except Exception as e:
-            attempt += 1
-            print(f"⚠ 🔹 Bit: Gemini attempt {attempt} failed: {e}")
-            if attempt < retries:
-                print(f"💡 🔹 Bit: Retrying in {wait_sec} seconds...")
-                sleep(wait_sec)
-            else:
-                return "chore: update code (AI unavailable)"
+def commit_with_gemini(diff):
+    try:
+        r = client.models.generate_content(
+            model="gemini-3-flash-preview",
+            contents=f"Generate ONE Conventional Commit message:\n{diff}",
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_level="low")
+            ),
+        )
+        return r.text.strip().split("\n")[0]
+    except Exception:
+        return "chore: update code (AI unavailable)"
 
 # -----------------------------
-# Commit code safely
+# Commit (SAFE + SELF-HEALING)
 # -----------------------------
 def bit_commit():
+    # 🔥 Ensure bit temp folder is ignored
+    if os.path.exists("bit-/"):
+        if subprocess.run(["git", "check-ignore", "-q", "bit-/"]).returncode != 0:
+            with open(".gitignore", "a", encoding="utf-8") as f:
+                f.write("\nbit-/\n")
+            print("ℹ 🔹 Bit: Auto-ignored bit-/ folder")
+
     # Check staged changes
     staged = subprocess.run(
         ["git", "diff", "--cached", "--name-only"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace"
-    ).stdout
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
-    if not staged.strip():
-        # Only auto-add if HEAD exists
-        head_exists = subprocess.run(
-            ["git", "rev-parse", "--verify", "HEAD"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace"
-        )
-        if head_exists.returncode == 0:
-            print("ℹ 🔹 Bit: No staged changes detected. Running 'git add .' automatically.")
+    if not staged:
+        # Only auto-add if repo already has commits
+        if subprocess.run(["git", "rev-parse", "--verify", "HEAD"],
+                          capture_output=True).returncode == 0:
             try:
                 subprocess.run(["git", "add", "."], check=True)
-            except subprocess.CalledProcessError as e:
-                print(f"⚠ 🔹 Bit: Auto-add failed: {e}")
-                print("ℹ 🔹 Bit: Adding files individually...")
+            except subprocess.CalledProcessError:
+                print("⚠ 🔹 Bit: git add . failed, adding files individually")
                 modified = subprocess.run(
                     ["git", "diff", "--name-only"],
-                    capture_output=True, text=True, encoding="utf-8", errors="replace"
-                ).stdout
-                if modified.strip():
-                    for f in modified.strip().split("\n"):
-                        if f:
-                            try:
-                                subprocess.run(["git", "add", f], check=True, capture_output=True)
-                            except subprocess.CalledProcessError:
-                                print(f"⚠ 🔹 Bit: Skipping problematic file: {f}")
-        else:
-            print("ℹ 🔹 Bit: Repository has no commits yet, skipping auto-add.")
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                for f in modified.splitlines():
+                    try:
+                        subprocess.run(["git", "add", f], check=True)
+                    except subprocess.CalledProcessError:
+                        print(f"⚠ 🔹 Skipped: {f}")
 
     diff = subprocess.run(
         ["git", "diff", "--cached"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace"
-    ).stdout
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
-    if not diff.strip():
-        print("⚠ 🔹 Bit: Nothing to commit even after adding.")
+    if not diff:
+        print("⚠ 🔹 Bit: Nothing to commit")
         return
 
-    print("🤖 🔹 Bit: Generating commit message with Gemini...")
-    commit_message = commit_with_gemini(diff)
-    print(f"\n✅ 🔹 Bit (Gemini) Commit message:\n{commit_message}\n")
-    subprocess.run(["git", "commit", "-m", commit_message], check=True)
+    print("🤖 🔹 Bit: Generating commit message...")
+    msg = commit_with_gemini(diff)
+    print("✅", msg)
+    subprocess.run(["git", "commit", "-m", msg], check=True)
     print("🎉 🔹 Bit: Commit successful")
 
 # -----------------------------
-# Clone repository safely
+# Clone safely
 # -----------------------------
 def bit_clone(url, target=None):
     folder = target or url.split("/")[-1].replace(".git", "")
     if os.path.exists(folder) and os.listdir(folder):
-        print(f"⚠ 🔹 Bit: Destination path '{folder}' already exists and is not empty. Skipping clone.")
+        print(f"⚠ 🔹 Bit: Destination '{folder}' exists, skipping clone")
         return
-    print(f"🔹 Bit: Cloning repository {url} into {folder} ...")
     subprocess.run(["git", "clone", url, folder], check=True)
     print("✅ 🔹 Bit: Clone successful")
 
 # -----------------------------
-# Passthrough for other git commands
+# Passthrough
 # -----------------------------
 def bit_passthrough(args):
-    cmd = ["git"] + args
-    print(f"🔹 Bit: Passing through to Git: git {' '.join(args)}")
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-        if result.stdout: print(result.stdout)
-        if result.stderr: print(result.stderr)
-        suggestions = ai_suggest(f"git {' '.join(args)}", context=result.stdout)
-        print(f"\n💡 🔹 Bit AI Suggestion:\n{suggestions}\n")
-    except subprocess.CalledProcessError as e:
-        print(f"❌ 🔹 Bit: Git command failed with exit code {e.returncode}")
+    print(f"🔹 Bit → git {' '.join(args)}")
+    r = subprocess.run(["git"] + args, capture_output=True, text=True)
+    if r.stdout:
+        print(r.stdout)
+    if r.stderr:
+        print(r.stderr)
+    print("💡", ai_suggest(f"git {' '.join(args)}", r.stdout))
 
 # -----------------------------
-# CLI Router
+# CLI
 # -----------------------------
 def main():
     args = sys.argv[1:]
     if not args:
-        print("⚠ 🔹 Bit: Usage: bit <init | commit | clone | other-git-commands>")
+        print("Usage: bit <init|commit|clone|git-command>")
         return
 
-    command = args[0].lower()
-    if command == "init":
+    cmd = args[0]
+    if cmd == "init":
         bit_init()
-    elif command == "commit":
+    elif cmd == "commit":
         bit_commit()
-    elif command == "clone":
-        url = args[1] if len(args) > 1 else None
-        target = args[2] if len(args) > 2 else None
-        if not url:
-            print("⚠ 🔹 Bit: Usage: bit clone <repo-url> [target-folder]")
-            return
-        bit_clone(url, target)
+    elif cmd == "clone":
+        bit_clone(args[1], args[2] if len(args) > 2 else None)
     else:
         bit_passthrough(args)
 
