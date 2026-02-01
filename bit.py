@@ -48,6 +48,334 @@ def ghost_active(msg): print(f"{GHOST_ACTIVE}👻 {msg}{RESET}")
 def ghost_meta(msg): print(f"{GHOST_META}{msg}{RESET}")
 
 # =============================
+# HELP SYSTEM
+# =============================
+
+HELP_CONTENT = {
+    "init": {
+        "desc": "Initialize a new Bit repository",
+        "examples": [
+            "bit init"
+        ],
+        "tips": [
+            "Creates .gitignore and .bit/config.json",
+            "Enables AI features if GEMINI_API_KEY is set"
+        ]
+    },
+    "commit": {
+        "desc": "Create commits with AI-generated messages",
+        "examples": [
+            "bit commit"
+        ],
+        "tips": [
+            "Auto-stages modified files",
+            "AI generates conventional commit messages",
+            "Shows ghost warning if in ghost mode"
+        ]
+    },
+    "push": {
+        "desc": "Push commits to remote repository",
+        "examples": [
+            "bit push"
+        ],
+        "tips": [
+            "Blocked if on a ghost branch",
+            "Use 'bit ghost apply' to materialize ghost first"
+        ]
+    },
+    "clone": {
+        "desc": "Clone a repository",
+        "examples": [
+            "bit clone https://github.com/user/repo.git",
+            "bit clone https://github.com/user/repo.git my-folder"
+        ],
+        "tips": [
+            "Auto-detects target folder from URL",
+            "Skips if folder already exists"
+        ]
+    },
+    "branch": {
+        "desc": "List branches and ghost branches",
+        "examples": [
+            "bit branch"
+        ],
+        "tips": [
+            "Shows both git branches and ghost branches",
+            "Ghost branches marked with 👻",
+            "Active ghost branch highlighted in purple"
+        ]
+    },
+    "ghost": {
+        "desc": "Ghost branch management",
+        "subcommands": {
+            "create": {
+                "desc": "Create a ghost branch (detached HEAD state)",
+                "examples": [
+                    "bit ghost create feature-x",
+                    "bit ghost create experiment"
+                ],
+                "tips": [
+                    "Detaches HEAD from any branch",
+                    "Isolates commits in ghost mode",
+                    "Cannot push ghost branches directly"
+                ]
+            },
+            "apply": {
+                "desc": "Materialize ghost branch into real branch",
+                "examples": [
+                    "bit ghost apply feature-x"
+                ],
+                "tips": [
+                    "Creates a real branch from ghost state",
+                    "Removes ghost from tracking",
+                    "Attaches HEAD to new branch"
+                ]
+            },
+            "discard": {
+                "desc": "Discard ghost branch and its commits",
+                "examples": [
+                    "bit ghost discard feature-x"
+                ],
+                "tips": [
+                    "Removes ghost from tracking",
+                    "Commits are lost (not materialized)",
+                    "Working files remain unchanged"
+                ]
+            }
+        }
+    },
+    "merge": {
+        "desc": "Merge operations",
+        "subcommands": {
+            "--preview": {
+                "desc": "Preview merge conflicts without modifying working directory",
+                "examples": [
+                    "bit merge --preview feature-x",
+                    "bit merge --preview develop"
+                ],
+                "tips": [
+                    "Uses git merge-tree for virtual merge",
+                    "AI provides conflict resolution advice",
+                    "No files are changed during preview"
+                ]
+            }
+        },
+        "examples": [
+            "bit merge --preview <branch-name>",
+            "bit merge <branch-name>  # passes through to git"
+        ],
+        "tips": [
+            "Preview mode checks for conflicts safely",
+            "Without --preview, passes to git merge"
+        ]
+    },
+    "help": {
+        "desc": "Show this help system",
+        "examples": [
+            "bit help"
+        ],
+        "tips": [
+            "Static help always available",
+            "Interactive AI chat if GEMINI_API_KEY is set"
+        ]
+    }
+}
+
+def bit_help():
+    """Display comprehensive help system with static help and optional AI chat"""
+    
+    # Header
+    print()
+    print(f"{CYAN}╔═══════════════════════════════════════════════════════════════╗{RESET}")
+    print(f"{CYAN}║{RESET}                      {CYAN}Bit CLI — Complete Command Reference{RESET}                {CYAN}║{RESET}")
+    print(f"{CYAN}╚═══════════════════════════════════════════════════════════════╝{RESET}")
+    print()
+    print(f"{DIM}Version: {BIT_VERSION} | AI Powered: {'✅' if client else '❌'}{RESET}")
+    print()
+    
+    # Print commands
+    for cmd_name, cmd_info in HELP_CONTENT.items():
+        if cmd_name == "ghost":
+            # Special handling for ghost command
+            print(f"{CYAN}📋 {cmd_name}{RESET} — {cmd_info['desc']}")
+            print()
+            
+            # Print ghost subcommands
+            for sub_name, sub_info in cmd_info.get("subcommands", {}).items():
+                print(f"  {MAGENTA}  {sub_name}{RESET} — {sub_info['desc']}")
+                print()
+                
+                # Print examples
+                if "examples" in sub_info:
+                    print(f"  {YELLOW}  💡 Examples:{RESET}")
+                    for ex in sub_info["examples"]:
+                        print(f"  {YELLOW}    {ex}{RESET}")
+                    print()
+                
+                # Print tips
+                if "tips" in sub_info:
+                    for tip in sub_info["tips"]:
+                        print(f"  {DIM}    💡 {tip}{RESET}")
+                    print()
+            
+        elif cmd_name == "merge":
+            # Special handling for merge command
+            print(f"{CYAN}📋 {cmd_name}{RESET} — {cmd_info['desc']}")
+            print()
+            
+            # Print merge subcommands
+            for sub_name, sub_info in cmd_info.get("subcommands", {}).items():
+                print(f"  {MAGENTA}  {sub_name}{RESET} — {sub_info['desc']}")
+                print()
+                
+                # Print examples
+                if "examples" in sub_info:
+                    print(f"  {YELLOW}  💡 Examples:{RESET}")
+                    for ex in sub_info["examples"]:
+                        print(f"  {YELLOW}    {ex}{RESET}")
+                    print()
+                
+                # Print tips
+                if "tips" in sub_info:
+                    for tip in sub_info["tips"]:
+                        print(f"  {DIM}    💡 {tip}{RESET}")
+                    print()
+            
+            # Print general examples for merge
+            if "examples" in cmd_info:
+                print(f"  {YELLOW}  💡 General Examples:{RESET}")
+                for ex in cmd_info["examples"]:
+                    print(f"  {YELLOW}    {ex}{RESET}")
+                print()
+            
+            # Print general tips for merge
+            if "tips" in cmd_info:
+                for tip in cmd_info["tips"]:
+                    print(f"  {DIM}    💡 {tip}{RESET}")
+                print()
+                
+        else:
+            # Regular commands
+            print(f"{CYAN}📋 {cmd_name}{RESET} — {cmd_info['desc']}")
+            print()
+            
+            # Print examples
+            if "examples" in cmd_info:
+                print(f"{YELLOW}  💡 Examples:{RESET}")
+                for ex in cmd_info["examples"]:
+                    print(f"{YELLOW}    {ex}{RESET}")
+                print()
+            
+            # Print tips
+            if "tips" in cmd_info:
+                for tip in cmd_info["tips"]:
+                    print(f"{DIM}  💡 {tip}{RESET}")
+                print()
+        
+        print(f"{DIM}{'─' * 60}{RESET}")
+        print()
+    
+    # Git passthrough info
+    print(f"{CYAN}📋 git-cmd{RESET} — Pass through any git command")
+    print()
+    print(f"{YELLOW}  💡 Examples:{RESET}")
+    print(f"{YELLOW}    bit status{RESET}")
+    print(f"{YELLOW}    bit log --oneline{RESET}")
+    print(f"{YELLOW}    bit diff{RESET}")
+    print()
+    print(f"{DIM}{'─' * 60}{RESET}")
+    print()
+    
+    # Interactive AI Chat
+    if client:
+        print(f"{MAGENTA}╔═══════════════════════════════════════════════════════════════╗{RESET}")
+        print(f"{MAGENTA}║{RESET}                     {MAGENTA}Interactive AI Help Available{RESET}                   {MAGENTA}║{RESET}")
+        print(f"{MAGENTA}╚═══════════════════════════════════════════════════════════════╝{RESET}")
+        print()
+        print(f"{CYAN}Type your questions about Bit commands to chat with AI.{RESET}")
+        print(f"{CYAN}Type {YELLOW}'exit'{CYAN} or press Ctrl+C to leave the chat.{RESET}")
+        print()
+        
+        # Interactive loop - only if running in a terminal
+        if sys.stdin.isatty():
+            try:
+                while True:
+                    try:
+                        user_input = input(f"{MAGENTA}Ask Bit > {RESET}")
+                    except EOFError:
+                        # stdin closed - exit gracefully
+                        break
+                    
+                    if user_input.strip().lower() in ['exit', 'quit', 'q']:
+                        print(f"{CYAN}👋 Goodbye!{RESET}")
+                        break
+                    
+                    if not user_input.strip():
+                        continue
+                    
+                    # Get AI response
+                    spinner = Spinner([
+                        "Thinking",
+                        "Reading your question",
+                        "Formulating answer"
+                    ])
+                    spinner.start()
+                    
+                    try:
+                        prompt = f"""
+You are a helpful assistant for the CLI tool version {BIT_VERSION}.
+
+Commands available: {', '.join(HELP_CONTENT.keys())}
+
+Special features:
+- Ghost branches: create isolated, detach HEAD state for experimentation
+- Merge preview: preview conflicts without modifying files
+- AI-powered commit messages and advice
+
+User question: {user_input}
+
+Provide a clear, concise answer. Include examples when relevant. Be specific about command syntax.
+"""
+                        r = client.models.generate_content(
+                            model="gemini-3-flash-preview",
+                            contents=prompt,
+                        )
+                        spinner.stop()
+                        
+                        if r.text:
+                            print(f"{GREEN}✅{RESET}")
+                            print()
+                            print(r.text.strip())
+                            print()
+                        else:
+                            spinner.stop()
+                            warn("No response from AI")
+                            
+                    except Exception as e:
+                        spinner.stop()
+                        err(f"Error: {str(e)}")
+                        warn("Falling back to static help system above")
+                        print()
+                        
+            except KeyboardInterrupt:
+                print(f"\n{CYAN}👋 Goodbye!{RESET}")
+                print()
+        else:
+            # Non-interactive mode (no TTY)
+            print(f"{DIM}Interactive chat available in terminal mode.{RESET}")
+            print(f"{DIM}Run 'bit help' from a terminal to chat with AI.{RESET}")
+            print()
+    else:
+        print(f"{CYAN}🤖 AI Help Not Available{RESET}")
+        print(f"{DIM}Set GEMINI_API_KEY in .env to enable interactive help.{RESET}")
+        print()
+    
+    print(f"{CYAN}╔═══════════════════════════════════════════════════════════════╗{RESET}")
+    print(f"{CYAN}║{RESET}                    {CYAN}For more info, visit the project repo{RESET}                 {CYAN}║{RESET}")
+    print(f"{CYAN}╚═══════════════════════════════════════════════════════════════╝{RESET}")
+    print()
+
+# =============================
 # SPINNER (alive, not robotic)
 # =============================
 class Spinner:
@@ -629,9 +957,10 @@ def bit_passthrough(args):
 # =============================
 def main():
     if len(sys.argv) < 2:
-        print("Usage: bit <init|commit|push|clone|branch|ghost|merge|git-cmd>")
+        print("Usage: bit <init|commit|push|clone|branch|ghost|merge|help|git-cmd>")
         print()
         info("Merge preview: bit merge --preview <branch-name>")
+        info("Help system: bit help")
         return
 
     cmd = sys.argv[1]
@@ -657,6 +986,8 @@ def main():
         else:
             # Pass through to git merge
             bit_passthrough([cmd] + args)
+    elif cmd == "help":
+        bit_help()
     else:
         bit_passthrough([cmd] + args)
     
