@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 import ast
+import hashlib
 
 # =============================
 # UTF-8 SAFE OUTPUT (Windows)
@@ -941,79 +942,113 @@ def bit_merge_preview(branch_name):
 # =============================
 # SYMBOL TRACKING
 # =============================
-DB_DIR = os.path.join(BIT_DIR, "db")
-ACTIVITY_FILE = os.path.join(DB_DIR, "activity.json")
+import hashlib
+import ast
+import json
+import os
+import time
 
+BIT_DB = ".bit/db"
+ACTIVITY_FILE = os.path.join(BIT_DB, "activity.json")
+
+
+# =============================
+# SYMBOL TRACKING HELPERS
+# =============================
 def ensure_db():
-    os.makedirs(DB_DIR, exist_ok=True)
+    os.makedirs(BIT_DB, exist_ok=True)
     if not os.path.exists(ACTIVITY_FILE):
         with open(ACTIVITY_FILE, "w", encoding="utf-8") as f:
             json.dump({}, f, indent=2)
+
 
 def load_activity():
     ensure_db()
     try:
         with open(ACTIVITY_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except json.JSONDecodeError:
         return {}
+
 
 def save_activity(data):
     ensure_db()
     with open(ACTIVITY_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
-def parse_symbols_from_code(code):
-    """Return list of function and class names in a Python code string."""
-    symbols = []
-    try:
-        tree = ast.parse(code)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                symbols.append(node.name)
-            elif isinstance(node, ast.ClassDef):
-                symbols.append(node.name)
-    except Exception:
-        pass
-    return symbols
 
 def get_staged_file_content(file_path):
-    """Return the staged version of a file from git index."""
+    """Get staged content for a file"""
     r = run(["git", "show", f":{file_path}"])
-    if r.returncode == 0:
-        return r.stdout
-    return ""
+    if r.returncode != 0:
+        return ""
+    return r.stdout
+
+
+def parse_symbols_from_code(code, filename):
+    """Return dict of symbol_name -> hash(content)"""
+    symbols = {}
+    if filename.endswith(".py"):
+        try:
+            tree = ast.parse(code)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    func_code = ast.get_source_segment(code, node) or ""
+                    func_hash = hashlib.sha256(func_code.encode("utf-8")).hexdigest()
+                    symbols[node.name] = func_hash
+        except Exception:
+            pass
+    else:
+        # For other languages, fallback: simple regex for function definitions
+        import re
+        pattern = r"(def|function|fn)\s+([a-zA-Z0-9_]+)"
+        for match in re.finditer(pattern, code):
+            name = match.group(2)
+            symbols[name] = hashlib.sha256(name.encode("utf-8")).hexdigest()
+    return symbols
+
 
 def track_symbol_changes():
-    """
-    Track symbols (functions/classes) modified in staged Python files.
-    Save activity to .bit/db/activity.json
-    """
+    """Track added / removed / modified symbols for all staged files"""
     staged_files = run(["git", "diff", "--cached", "--name-only"]).stdout.splitlines()
+    if not staged_files:
+        return
+
     activity = load_activity()
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
 
     for f in staged_files:
-        if not f.endswith(".py"):  # Only Python for now
+        if not os.path.exists(f):
             continue
 
-        new_code = get_staged_file_content(f)
-        old_code_result = run(["git", "show", f"HEAD:{f}"])
-        old_code = old_code_result.stdout if old_code_result.returncode == 0 else ""
+        content = get_staged_file_content(f)
+        if not content.strip():
+            continue
 
-        old_symbols = set(parse_symbols_from_code(old_code))
-        new_symbols = set(parse_symbols_from_code(new_code))
-        changed_symbols = list(new_symbols - old_symbols)  # New/modified functions
+        current_symbols = parse_symbols_from_code(content, f)
+        prev_symbols = {}
+        # Load previous snapshot
+        for ts, file_data in activity.items():
+            if file_data.get("file") == f:
+                prev_symbols = file_data.get("symbols_hashes", {})
+                break
 
-        if changed_symbols:
+        added = [s for s in current_symbols if s not in prev_symbols]
+        removed = [s for s in prev_symbols if s not in current_symbols]
+        modified = [
+            s for s in current_symbols
+            if s in prev_symbols and current_symbols[s] != prev_symbols[s]
+        ]
+
+        if added or removed or modified:
             activity[timestamp] = {
                 "file": f,
-                "symbols_changed": changed_symbols
+                "added": added,
+                "removed": removed,
+                "modified": modified,
+                "symbols_hashes": current_symbols  # store current snapshot for next commit
             }
-            ghost_meta(f"Tracked symbols in {f}: {', '.join(changed_symbols)}")
-
     save_activity(activity)
-
 # =============================
 # PASSTHROUGH
 # =============================
