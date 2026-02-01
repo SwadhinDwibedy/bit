@@ -14,3 +14,21 @@
 [2026-02-01 08:48:28] bit ghost apply test-final-complete
 [2026-02-01 08:49:25] bit push 
 [2026-02-01 08:49:40] bit init 
+[2026-02-01 08:52:05] bit commit 
+[2026-02-01 08:52:33] bit push 
+[2026-02-01 08:53:26] bit branch 
+[2026-02-01 09:06:45] bit ghost create ghost-demo
+[2026-02-01 09:07:15] bit status 
+[2026-02-01 09:08:48] bit branch 
+[2026-02-01 09:13:00] bit ghost discard ghost-demo
+[2026-02-01 09:13:14] bit branch 
+[2026-02-01 09:34:22] bit ghost create test-enhanced
+[2026-02-01 09:34:35] bit branch 
+[2026-02-01 09:34:48] bit ghost apply test-enhanced
+[2026-02-01 09:36:08] bit ghost create test-discard
+[2026-02-01 09:36:11] bit ghost discard test-discard
+[2026-02-01 09:37:18] bit ghost create test-warning-banner
+[2026-02-01 09:37:50] bit commit 
+[2026-02-01 09:38:16] bit ghost apply test-warning-banner
+[2026-02-01 09:38:32] bit commit 
+[2026-02-01 09:54:23] bit --version 

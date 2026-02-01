@@ -30,12 +30,22 @@ CYAN = "\033[96m"      # primary accent
 MAGENTA = "\033[95m"   # AI only
 DIM = "\033[2m"
 
+# =============================
+# GHOST COLORS
+# =============================
+GHOST = "\033[94m"        # soft blue-violet
+GHOST_ACTIVE = "\033[95m" # magenta (active ghost)
+GHOST_META = "\033[90m"   # dim gray
+
 def ok(msg): print(f"{GREEN}✔ {msg}{RESET}")
 def warn(msg): print(f"{YELLOW}⚠ {msg}{RESET}")
 def err(msg): print(f"{RED}✖ {msg}{RESET}")
 def info(msg): print(f"{CYAN}{msg}{RESET}")
 def meta(msg): print(f"{DIM}{msg}{RESET}")
 def ai_msg(msg): print(f"{MAGENTA}{msg}{RESET}")
+def ghost(msg): print(f"{GHOST}👻 {msg}{RESET}")
+def ghost_active(msg): print(f"{GHOST_ACTIVE}👻 {msg}{RESET}")
+def ghost_meta(msg): print(f"{GHOST_META}{msg}{RESET}")
 
 # =============================
 # SPINNER (alive, not robotic)
@@ -189,6 +199,12 @@ def get_active_ghost():
     data = load_ghosts()
     return data.get("active")
 
+def show_ghost_warning():
+    """Display a warning banner when user is in ghost mode"""
+    active = get_active_ghost()
+    if active:
+        ghost_active(f"Active Ghost: {active} (commits are isolated)")
+
 # =============================
 # CONFIG
 # =============================
@@ -257,6 +273,9 @@ def bit_init():
 # =============================
 def bit_commit():
     ensure_gitignore()
+    
+    # Show ghost warning if in ghost mode
+    show_ghost_warning()
 
     staged = run(["git", "diff", "--cached", "--name-only"]).stdout.strip()
 
@@ -366,9 +385,9 @@ def bit_ghost_create(name):
     # STEP C: Detach HEAD (the magic)
     run(["git", "checkout", "--detach"], check=True)
     
-    ok(f"Ghost branch 👻 {name} created")
-    info("You're now in Ghost Mode - make commits freely!")
-    meta(f"Base commit: {base_commit[:8]}")
+    ghost_active(f"Ghost branch '{name}' created")
+    ghost("You are now in Ghost Mode (detached HEAD)")
+    ghost_meta(f"Base commit → {base_commit[:8]}")
 
 def bit_ghost_apply(name):
     if not name:
@@ -390,8 +409,8 @@ def bit_ghost_apply(name):
     data["active"] = None
     save_ghosts(data)
     
-    ok(f"Ghost 👻 {name} materialized as real branch")
-    info("You can now push safely")
+    ok(f"Ghost '{name}' materialized as real branch")
+    ghost_meta("Ghost state cleared • HEAD attached")
 
 def bit_ghost_discard(name):
     if not name:
@@ -414,8 +433,8 @@ def bit_ghost_discard(name):
         data["active"] = None
     save_ghosts(data)
     
-    ok(f"Ghost 👻 {name} discarded")
-    info("Clean exit - no repo pollution")
+    ghost(f"Ghost '{name}' discarded")
+    ghost_meta("Commits removed • Working files untouched")
 
 def ghost_handler(args):
     if not args or len(args) < 1:
@@ -459,12 +478,12 @@ def bit_branch():
         print()
         info("Ghost branches:")
         for name in ghosts:
-            marker = "👻 *" if name == active else "👻"
+            marker = f"{GHOST_ACTIVE}👻 *{RESET}" if name == active else f"{GHOST}👻{RESET}"
             base = ghosts[name].get("base_commit", "")[:8]
             created = ghosts[name].get("created_at", "")
-            print(f"  {marker} {name} (base: {base})")
+            print(f"  {marker} {GHOST}{name}{RESET} (base: {DIM}{base}{RESET})")
             if created:
-                meta(f"     created: {created}")
+                ghost_meta(f"     created: {created}")
 
 # =============================
 # PASSTHROUGH
