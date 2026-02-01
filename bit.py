@@ -173,6 +173,29 @@ def ai_suggest(cmd, output):
     except Exception:
         return None
 
+def ai_merge_advice(merge_output):
+    """Get AI advice about merge conflicts from Gemini"""
+    if not client:
+        return None
+    
+    try:
+        prompt = f"""
+Git merge output showing conflicts:
+{merge_output}
+
+Explain in 2-3 sentences:
+1. Why this conflict is happening
+2. What the developer should do (rebase, manual resolve, etc.)
+Be concise and actionable.
+"""
+        r = client.models.generate_content(
+            model="gemini-3-flash-preview",
+            contents=prompt,
+        )
+        return r.text.strip()
+    except Exception:
+        return None
+
 # =============================
 # GHOST BRANCH HELPERS
 # =============================
@@ -486,6 +509,105 @@ def bit_branch():
                 ghost_meta(f"     created: {created}")
 
 # =============================
+# MERGE PREVIEW
+# =============================
+def bit_merge_preview(branch_name):
+    """Preview merge conflicts without modifying working directory"""
+    if not branch_name:
+        err("Usage: bit merge --preview <branch-name>")
+        return
+    
+    # Check if we're on a ghost branch
+    active_ghost = get_active_ghost()
+    if active_ghost:
+        warn(f"⚠ Previewing merge from Ghost Branch ({active_ghost})")
+        ghost_meta("This is a detached HEAD state - preview may be unusual")
+        print()
+    
+    # Validate branch exists
+    branch_check = run(["git", "show-ref", "--verify", f"refs/heads/{branch_name}"])
+    if branch_check.returncode != 0:
+        err(f"Branch '{branch_name}' not found")
+        info("Available branches:")
+        r = run(["git", "branch"])
+        print(r.stdout)
+        return
+    
+    # Get current commit
+    current_commit = run(["git", "rev-parse", "HEAD"]).stdout.strip()
+    if not current_commit:
+        err("Cannot get current commit. Are you in a git repository?")
+        return
+    
+    # Get the target branch's commit
+    target_commit = run(["git", "rev-parse", branch_name]).stdout.strip()
+    if not target_commit:
+        err(f"Cannot get commit for branch '{branch_name}'")
+        return
+    
+    meta(f"Analyzing merge preview: {branch_name} → current")
+    meta(f"Your commit: {current_commit[:8]}")
+    meta(f"Target commit: {target_commit[:8]}")
+    print()
+    
+    # Find merge base
+    merge_base = run(["git", "merge-base", current_commit, target_commit]).stdout.strip()
+    if not merge_base:
+        err("Cannot find merge base")
+        return
+    
+    # Perform virtual merge using git merge-tree
+    # This creates the merge in memory without touching working directory
+    result = run(["git", "merge-tree", "--write-tree", current_commit, target_commit])
+    
+    if result.returncode == 0:
+        # Clean merge
+        ok("✓ Clean merge! No conflicts expected.")
+        meta(f"Merge base: {merge_base[:8]}")
+        info("You can safely merge: ")
+        print(f"   git merge {branch_name}")
+    else:
+        # Conflicts detected
+        err("⚠ Merge conflicts detected!")
+        print()
+        
+        # Parse conflict markers from merge-tree output
+        output = result.stdout + result.stderr
+        conflicts = []
+        
+        for line in output.split('\n'):
+            if '<<<<<<<' in line:
+                conflicts.append("  " + line.strip())
+        
+        if conflicts:
+            warn("Conflicting files:")
+            for conflict in conflicts:
+                print(conflict)
+            print()
+        
+        # Get AI advice if available
+        spinner = Spinner([
+            "Analyzing conflicts",
+            "Generating advice"
+        ])
+        spinner.start()
+        advice = ai_merge_advice(output)
+        spinner.stop()
+        
+        if advice:
+            ai_msg("AI Merge Advice:")
+            print(f"  {advice}")
+            print()
+        else:
+            meta("AI unavailable - try: git merge {branch_name} --no-commit to see full conflicts")
+            print()
+        
+        info("To preview with real conflicts (temp files):")
+        print(f"   git merge {branch_name} --no-commit --no-ff")
+        print()
+        info("Then resolve conflicts or abort with: git merge --abort")
+
+# =============================
 # PASSTHROUGH
 # =============================
 def bit_passthrough(args):
@@ -507,7 +629,9 @@ def bit_passthrough(args):
 # =============================
 def main():
     if len(sys.argv) < 2:
-        print("Usage: bit <init|commit|push|clone|branch|ghost|git-cmd>")
+        print("Usage: bit <init|commit|push|clone|branch|ghost|merge|git-cmd>")
+        print()
+        info("Merge preview: bit merge --preview <branch-name>")
         return
 
     cmd = sys.argv[1]
@@ -525,6 +649,14 @@ def main():
         bit_branch()
     elif cmd == "ghost":
         ghost_handler(args)
+    elif cmd == "merge":
+        # Check for --preview flag
+        if args and args[0] == "--preview":
+            branch_name = args[1] if len(args) > 1 else None
+            bit_merge_preview(branch_name)
+        else:
+            # Pass through to git merge
+            bit_passthrough([cmd] + args)
     else:
         bit_passthrough([cmd] + args)
     

@@ -32,3 +32,14 @@
 [2026-02-01 09:38:16] bit ghost apply test-warning-banner
 [2026-02-01 09:38:32] bit commit 
 [2026-02-01 09:54:23] bit --version 
+[2026-02-01 10:11:35] bit commit 
+[2026-02-01 10:11:59] bit push 
+[2026-02-01 10:16:49] bit merge --preview
+[2026-02-01 10:17:07] bit merge --preview experiment-1
+[2026-02-01 10:17:19] bit merge --preview non-existent-branch
+[2026-02-01 10:17:28] bit merge --preview experiment-2
+[2026-02-01 10:17:38] bit ghost create test-merge-ghost
+[2026-02-01 10:17:47] bit merge --preview experiment-1
+[2026-02-01 10:18:06] bit ghost apply test-merge-ghost
+[2026-02-01 10:20:23] bit branch 
+[2026-02-01 10:20:31] bit help 
