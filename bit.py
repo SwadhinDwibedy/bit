@@ -655,7 +655,7 @@ def bit_commit():
         ai_msg("AI assisted ✓")
     else:
         ai_msg("AI skipped ✓")
-        msg = "chore: update code"
+        msg = "chore: update code and new feature enabled"
 
     info(f"Commit → {msg}")
     time.sleep(0.3)
