@@ -1014,10 +1014,13 @@ def track_symbol_changes():
     """Track added / removed / modified symbols for all staged files"""
     staged_files = run(["git", "diff", "--cached", "--name-only"]).stdout.splitlines()
     if not staged_files:
-        return
+        return {}
 
     activity = load_activity()
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Build result dictionary for check_hot_zone
+    staged_files_symbols = {}
 
     for f in staged_files:
         if not os.path.exists(f):
@@ -1050,7 +1053,14 @@ def track_symbol_changes():
                 "modified": modified,
                 "symbols_hashes": current_symbols  # store current snapshot for next commit
             }
+            
+            # Add to result for check_hot_zone
+            changed_symbols = added + modified  # These are the symbols being worked on
+            if changed_symbols:
+                staged_files_symbols[f] = changed_symbols
+    
     save_activity(activity)
+    return staged_files_symbols
 # =============================
 # HOT ZONE (Simulated Team Awareness)
 # =============================
