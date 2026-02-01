@@ -11,6 +11,7 @@ import json
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+import ast
 
 # =============================
 # UTF-8 SAFE OUTPUT (Windows)
@@ -636,6 +637,8 @@ def bit_commit():
             if not f.startswith("bit-/"):
                 run(["git", "add", f])
 
+    track_symbol_changes()
+
     diff = run(["git", "diff", "--cached"]).stdout.strip()
     if not diff:
         warn("Nothing to commit")
@@ -934,6 +937,82 @@ def bit_merge_preview(branch_name):
         print(f"   git merge {branch_name} --no-commit --no-ff")
         print()
         info("Then resolve conflicts or abort with: git merge --abort")
+
+# =============================
+# SYMBOL TRACKING
+# =============================
+DB_DIR = os.path.join(BIT_DIR, "db")
+ACTIVITY_FILE = os.path.join(DB_DIR, "activity.json")
+
+def ensure_db():
+    os.makedirs(DB_DIR, exist_ok=True)
+    if not os.path.exists(ACTIVITY_FILE):
+        with open(ACTIVITY_FILE, "w", encoding="utf-8") as f:
+            json.dump({}, f, indent=2)
+
+def load_activity():
+    ensure_db()
+    try:
+        with open(ACTIVITY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_activity(data):
+    ensure_db()
+    with open(ACTIVITY_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+def parse_symbols_from_code(code):
+    """Return list of function and class names in a Python code string."""
+    symbols = []
+    try:
+        tree = ast.parse(code)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                symbols.append(node.name)
+            elif isinstance(node, ast.ClassDef):
+                symbols.append(node.name)
+    except Exception:
+        pass
+    return symbols
+
+def get_staged_file_content(file_path):
+    """Return the staged version of a file from git index."""
+    r = run(["git", "show", f":{file_path}"])
+    if r.returncode == 0:
+        return r.stdout
+    return ""
+
+def track_symbol_changes():
+    """
+    Track symbols (functions/classes) modified in staged Python files.
+    Save activity to .bit/db/activity.json
+    """
+    staged_files = run(["git", "diff", "--cached", "--name-only"]).stdout.splitlines()
+    activity = load_activity()
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    for f in staged_files:
+        if not f.endswith(".py"):  # Only Python for now
+            continue
+
+        new_code = get_staged_file_content(f)
+        old_code_result = run(["git", "show", f"HEAD:{f}"])
+        old_code = old_code_result.stdout if old_code_result.returncode == 0 else ""
+
+        old_symbols = set(parse_symbols_from_code(old_code))
+        new_symbols = set(parse_symbols_from_code(new_code))
+        changed_symbols = list(new_symbols - old_symbols)  # New/modified functions
+
+        if changed_symbols:
+            activity[timestamp] = {
+                "file": f,
+                "symbols_changed": changed_symbols
+            }
+            ghost_meta(f"Tracked symbols in {f}: {', '.join(changed_symbols)}")
+
+    save_activity(activity)
 
 # =============================
 # PASSTHROUGH
