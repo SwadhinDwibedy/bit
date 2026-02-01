@@ -385,7 +385,8 @@ def bit_ghost_apply(name):
     # STEP A: Create real branch from current state
     run(["git", "checkout", "-b", name], check=True)
     
-    # STEP B: Update ghosts.json (mark as applied)
+    # STEP B: Update ghosts.json (remove ghost and mark as applied)
+    del data["branches"][name]
     data["active"] = None
     save_ghosts(data)
     
