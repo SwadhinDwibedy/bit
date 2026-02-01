@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.env
+venv/
+
+# Bit temp folders
+bit-/
+__pycache__/
+*.pyc
+venv/
+.env
+bit-/
+
+.bit/

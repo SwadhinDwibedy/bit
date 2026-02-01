@@ -638,7 +638,9 @@ def bit_commit():
             if not f.startswith("bit-/"):
                 run(["git", "add", f])
 
-    track_symbol_changes()
+    staged_files_symbols = track_symbol_changes()
+
+    check_hot_zone(staged_files_symbols)
 
     diff = run(["git", "diff", "--cached"]).stdout.strip()
     if not diff:
@@ -1049,6 +1051,35 @@ def track_symbol_changes():
                 "symbols_hashes": current_symbols  # store current snapshot for next commit
             }
     save_activity(activity)
+# =============================
+# HOT ZONE (Simulated Team Awareness)
+# =============================
+HOT_ZONE_WARNING = "\033[91m⚠ CAUTION\033[0m"  # red warning
+
+def check_hot_zone(staged_files_symbols):
+    """
+    staged_files_symbols: dict
+    { "file.py": ["func1", "func2"], ... }
+    """
+    ensure_db()
+    activity = load_activity()
+    warnings = []
+
+    for file, symbols in staged_files_symbols.items():
+        if file in activity:
+            # activity[file] is a dict of timestamps -> symbols
+            for ts, info in activity[file].items():
+                dev_symbols = info.get("symbols_changed", [])
+                for symbol in symbols:
+                    if symbol in dev_symbols:
+                        warnings.append((file, symbol, ts))
+
+    if warnings:
+        ghost_active("⚠ HOT ZONE ALERT: Potential conflicts detected!")
+        for file, symbol, ts in warnings:
+            print(f"{HOT_ZONE_WARNING} Another dev worked on '{symbol}' in {file} at {ts}")
+        print()
+
 # =============================
 # PASSTHROUGH
 # =============================
