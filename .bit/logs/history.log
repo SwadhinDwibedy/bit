@@ -66,3 +66,14 @@
 [2026-02-01 12:21:34] bit status 
 [2026-02-01 12:21:52] bit ghost create ghost-demo
 [2026-02-01 12:22:02] bit branch 
+[2026-02-01 12:22:59] bit commit 
+[2026-02-01 12:23:30] bit merge --preview main
+[2026-02-01 12:23:51] bit ghost discrad ghost-demo
+[2026-02-01 12:24:21] bit ghost discard ghost-demo
+[2026-02-01 12:24:27] bit branch 
+[2026-02-01 12:28:45] bit commit 
+[2026-02-01 12:30:59] bit add app.py
+[2026-02-01 12:31:29] bit commit 
+[2026-02-01 12:31:37] bit push 
+[2026-02-01 12:31:58] bit check out main
+[2026-02-01 12:32:10] bit checkout main
